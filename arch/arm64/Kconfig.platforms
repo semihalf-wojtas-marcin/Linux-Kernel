@@ -60,8 +60,8 @@ config ARCH_MEDIATEK
 
 config ARCH_MVEBU
 	bool "Marvell EBU SoC Family"
-	select ARMADA_AP806_CORE_CLK
-	select ARMADA_AP806_RING_CLK
+	select ARMADA_AP806_SYSCON
+	select ARMADA_CP110_SYSCON
 	select ARMADA_37XX_CLK
 	select MVEBU_ODMI
 	help
