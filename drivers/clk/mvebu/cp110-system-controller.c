@@ -217,7 +217,7 @@ static int cp110_syscon_clk_probe(struct platform_device *pdev)
 	/* Register the APLL which is the root of the hw tree */
 	of_property_read_string_index(np, "core-clock-output-names",
 				      CP110_CORE_APLL, &apll_name);
-	hw = clk_hw_register_fixed_rate(NULL, apll_name, NULL, 0,
+	hw = clk_hw_register_fixed_rate(NULL, apll_name, NULL, CLK_IS_ROOT,
 					1000 * 1000 * 1000);
 	if (IS_ERR(hw)) {
 		ret = PTR_ERR(hw);
