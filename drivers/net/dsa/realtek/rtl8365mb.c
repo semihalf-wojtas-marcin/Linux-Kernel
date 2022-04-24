@@ -887,7 +887,7 @@ static int rtl8365mb_ext_config_rgmii(struct realtek_priv *priv, int port,
 		return -ENODEV;
 
 	dp = dsa_to_port(priv->ds, port);
-	dn = dp->dn;
+	dn = to_of_node(dp->fwnode);
 
 	/* Set the RGMII TX/RX delay
 	 *

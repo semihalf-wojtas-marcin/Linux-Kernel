@@ -2235,8 +2235,10 @@ mt7530_setup(struct dsa_switch *ds)
 
 	if (!dsa_is_unused_port(ds, 5)) {
 		priv->p5_intf_sel = P5_INTF_SEL_GMAC5;
-		ret = of_get_phy_mode(dsa_to_port(ds, 5)->dn, &interface);
-		if (ret && ret != -ENODEV)
+		ret = fwnode_get_phy_mode(dsa_to_port(ds, 5)->fwnode);
+		if (ret >= 0)
+			interface = ret;
+		else if (ret != -ENODEV)
 			return ret;
 	} else {
 		/* Scan the ethernet nodes. look for GMAC1, lookup used phy */
