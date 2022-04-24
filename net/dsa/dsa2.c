@@ -493,7 +493,7 @@ static int dsa_port_setup(struct dsa_port *dp)
 
 		break;
 	case DSA_PORT_TYPE_USER:
-		of_get_mac_address(dp->dn, dp->mac);
+		fwnode_get_mac_address(dp->fwnode, dp->mac);
 		err = dsa_slave_create(dp);
 		if (err)
 			break;
@@ -853,7 +853,7 @@ disconnect:
 static int dsa_switch_setup(struct dsa_switch *ds)
 {
 	struct dsa_devlink_priv *dl_priv;
-	struct device_node *dn;
+	struct fwnode_handle *fwnode;
 	struct dsa_port *dp;
 	int err;
 
@@ -909,10 +909,10 @@ static int dsa_switch_setup(struct dsa_switch *ds)
 
 		dsa_slave_mii_bus_init(ds);
 
-		dn = of_get_child_by_name(ds->dev->of_node, "mdio");
+		fwnode = fwnode_get_named_child_node(ds->dev->fwnode, "mdio");
 
-		err = of_mdiobus_register(ds->slave_mii_bus, dn);
-		of_node_put(dn);
+		err = of_mdiobus_register(ds->slave_mii_bus, to_of_node(fwnode));
+		fwnode_handle_put(fwnode);
 		if (err < 0)
 			goto free_slave_mii_bus;
 	}
@@ -1482,24 +1482,34 @@ static int dsa_port_parse_cpu(struct dsa_port *dp, struct net_device *master,
 	return 0;
 }
 
-static int dsa_port_parse_of(struct dsa_port *dp, struct device_node *dn)
+static int dsa_port_parse_of(struct dsa_port *dp, struct fwnode_handle *fwnode)
 {
-	struct device_node *ethernet = of_parse_phandle(dn, "ethernet", 0);
-	const char *name = of_get_property(dn, "label", NULL);
-	bool link = of_property_read_bool(dn, "link");
+	struct fwnode_handle *ethernet = fwnode_find_reference(fwnode, "ethernet", 0);
+	bool link = fwnode_property_present(fwnode, "link");
+	const char *name;
+	int ret;
 
-	dp->dn = dn;
+	ret = fwnode_property_read_string(fwnode, "label", &name);
+	if (ret)
+		return ret;
 
-	if (ethernet) {
+	dp->fwnode = fwnode;
+	dp->dn = to_of_node(fwnode);
+
+	if (!IS_ERR(ethernet)) {
 		struct net_device *master;
 		const char *user_protocol;
 
-		master = of_find_net_device_by_node(ethernet);
-		of_node_put(ethernet);
+		master = of_find_net_device_by_node(to_of_node(ethernet));
+		fwnode_handle_put(ethernet);
 		if (!master)
 			return -EPROBE_DEFER;
 
-		user_protocol = of_get_property(dn, "dsa-tag-protocol", NULL);
+		ret = fwnode_property_read_string(fwnode, "dsa-tag-protocol",
+						  &user_protocol);
+		if (ret)
+			user_protocol = NULL;
+
 		return dsa_port_parse_cpu(dp, master, user_protocol);
 	}
 
@@ -1510,34 +1520,34 @@ static int dsa_port_parse_of(struct dsa_port *dp, struct device_node *dn)
 }
 
 static int dsa_switch_parse_ports_of(struct dsa_switch *ds,
-				     struct device_node *dn)
+				     struct fwnode_handle *fwnode)
 {
-	struct device_node *ports, *port;
+	struct fwnode_handle *ports, *port;
 	struct dsa_port *dp;
 	int err = 0;
 	u32 reg;
 
-	ports = of_get_child_by_name(dn, "ports");
+	ports = fwnode_get_named_child_node(fwnode, "ports");
 	if (!ports) {
 		/* The second possibility is "ethernet-ports" */
-		ports = of_get_child_by_name(dn, "ethernet-ports");
+		ports = fwnode_get_named_child_node(fwnode, "ethernet-ports");
 		if (!ports) {
 			dev_err(ds->dev, "no ports child node found\n");
 			return -EINVAL;
 		}
 	}
 
-	for_each_available_child_of_node(ports, port) {
-		err = of_property_read_u32(port, "reg", &reg);
+	fwnode_for_each_available_child_node(ports, port) {
+		err = fwnode_property_read_u32(port, "reg", &reg);
 		if (err) {
-			of_node_put(port);
+			fwnode_handle_put(port);
 			goto out_put_node;
 		}
 
 		if (reg >= ds->num_ports) {
 			dev_err(ds->dev, "port %pOF index %u exceeds num_ports (%u)\n",
 				port, reg, ds->num_ports);
-			of_node_put(port);
+			fwnode_handle_put(port);
 			err = -EINVAL;
 			goto out_put_node;
 		}
@@ -1546,24 +1556,24 @@ static int dsa_switch_parse_ports_of(struct dsa_switch *ds,
 
 		err = dsa_port_parse_of(dp, port);
 		if (err) {
-			of_node_put(port);
+			fwnode_handle_put(port);
 			goto out_put_node;
 		}
 	}
 
 out_put_node:
-	of_node_put(ports);
+	fwnode_handle_put(ports);
 	return err;
 }
 
 static int dsa_switch_parse_member_of(struct dsa_switch *ds,
-				      struct device_node *dn)
+				      struct fwnode_handle *fwnode)
 {
 	u32 m[2] = { 0, 0 };
 	int sz;
 
 	/* Don't error out if this optional property isn't found */
-	sz = of_property_read_variable_u32_array(dn, "dsa,member", m, 2, 2);
+	sz = fwnode_property_read_u32_array(fwnode, "dsa,member", m, 2);
 	if (sz < 0 && sz != -EINVAL)
 		return sz;
 
@@ -1600,11 +1610,11 @@ static int dsa_switch_touch_ports(struct dsa_switch *ds)
 	return 0;
 }
 
-static int dsa_switch_parse_of(struct dsa_switch *ds, struct device_node *dn)
+static int dsa_switch_parse_of(struct dsa_switch *ds, struct fwnode_handle *fwnode)
 {
 	int err;
 
-	err = dsa_switch_parse_member_of(ds, dn);
+	err = dsa_switch_parse_member_of(ds, fwnode);
 	if (err)
 		return err;
 
@@ -1612,7 +1622,7 @@ static int dsa_switch_parse_of(struct dsa_switch *ds, struct device_node *dn)
 	if (err)
 		return err;
 
-	return dsa_switch_parse_ports_of(ds, dn);
+	return dsa_switch_parse_ports_of(ds, fwnode);
 }
 
 static int dsa_port_parse(struct dsa_port *dp, const char *name,
@@ -1705,20 +1715,20 @@ static int dsa_switch_probe(struct dsa_switch *ds)
 {
 	struct dsa_switch_tree *dst;
 	struct dsa_chip_data *pdata;
-	struct device_node *np;
+	struct fwnode_handle *fwnode;
 	int err;
 
 	if (!ds->dev)
 		return -ENODEV;
 
 	pdata = ds->dev->platform_data;
-	np = ds->dev->of_node;
+	fwnode = ds->dev->fwnode;
 
 	if (!ds->num_ports)
 		return -EINVAL;
 
-	if (np) {
-		err = dsa_switch_parse_of(ds, np);
+	if (fwnode) {
+		err = dsa_switch_parse_of(ds, fwnode);
 		if (err)
 			dsa_switch_release_ports(ds);
 	} else if (pdata) {

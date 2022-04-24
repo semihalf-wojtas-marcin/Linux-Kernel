@@ -299,6 +299,7 @@ struct dsa_port {
 	u8			setup:1;
 
 	struct device_node	*dn;
+	struct fwnode_handle    *fwnode;
 	unsigned int		ageing_time;
 
 	struct dsa_bridge	*bridge;
