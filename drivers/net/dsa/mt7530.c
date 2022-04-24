@@ -2109,8 +2109,8 @@ mt7530_setup(struct dsa_switch *ds)
 	struct device_node *phy_node;
 	struct device_node *mac_np;
 	struct mt7530_dummy_poll p;
-	phy_interface_t interface;
 	struct dsa_port *cpu_dp;
+	int interface;
 	u32 id, val;
 	int ret, i;
 
@@ -2232,8 +2232,8 @@ mt7530_setup(struct dsa_switch *ds)
 
 	if (!dsa_is_unused_port(ds, 5)) {
 		priv->p5_intf_sel = P5_INTF_SEL_GMAC5;
-		ret = of_get_phy_mode(dsa_to_port(ds, 5)->dn, &interface);
-		if (ret && ret != -ENODEV)
+		interface = fwnode_get_phy_mode(dsa_to_port(ds, 5)->fwnode);
+		if (interface < 0)
 			return ret;
 	} else {
 		/* Scan the ethernet nodes. look for GMAC1, lookup used phy */

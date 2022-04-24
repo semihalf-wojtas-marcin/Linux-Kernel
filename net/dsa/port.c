@@ -6,10 +6,9 @@
  *	Vivien Didelot <vivien.didelot@savoirfairelinux.com>
  */
 
+#include <linux/fwnode_mdio.h>
 #include <linux/if_bridge.h>
 #include <linux/notifier.h>
-#include <linux/of_mdio.h>
-#include <linux/of_net.h>
 
 #include "dsa_priv.h"
 
@@ -1380,20 +1379,20 @@ void dsa_port_set_tag_protocol(struct dsa_port *cpu_dp,
 
 static struct phy_device *dsa_port_get_phy_device(struct dsa_port *dp)
 {
-	struct device_node *phy_dn;
+	struct fwnode_handle *phy_handle;
 	struct phy_device *phydev;
 
-	phy_dn = of_parse_phandle(dp->dn, "phy-handle", 0);
-	if (!phy_dn)
+	phy_handle = fwnode_find_reference(dp->fwnode, "phy-handle", 0);
+	if (IS_ERR(phy_handle))
 		return NULL;
 
-	phydev = of_phy_find_device(phy_dn);
+	phydev = fwnode_phy_find_device(phy_handle);
 	if (!phydev) {
-		of_node_put(phy_dn);
+		fwnode_handle_put(phy_handle);
 		return ERR_PTR(-EPROBE_DEFER);
 	}
 
-	of_node_put(phy_dn);
+	fwnode_handle_put(phy_handle);
 	return phydev;
 }
 
@@ -1525,11 +1524,10 @@ static const struct phylink_mac_ops dsa_port_phylink_mac_ops = {
 int dsa_port_phylink_create(struct dsa_port *dp)
 {
 	struct dsa_switch *ds = dp->ds;
-	phy_interface_t mode;
-	int err;
+	int mode;
 
-	err = of_get_phy_mode(dp->dn, &mode);
-	if (err)
+	mode = fwnode_get_phy_mode(dp->fwnode);
+	if (mode < 0)
 		mode = PHY_INTERFACE_MODE_NA;
 
 	/* Presence of phylink_mac_link_state or phylink_mac_an_restart is
@@ -1542,7 +1540,7 @@ int dsa_port_phylink_create(struct dsa_port *dp)
 	if (ds->ops->phylink_get_caps)
 		ds->ops->phylink_get_caps(ds, dp->index, &dp->pl_config);
 
-	dp->pl = phylink_create(&dp->pl_config, of_fwnode_handle(dp->dn),
+	dp->pl = phylink_create(&dp->pl_config, dp->fwnode,
 				mode, &dsa_port_phylink_mac_ops);
 	if (IS_ERR(dp->pl)) {
 		pr_err("error creating PHYLINK: %ld\n", PTR_ERR(dp->pl));
@@ -1552,7 +1550,7 @@ int dsa_port_phylink_create(struct dsa_port *dp)
 	return 0;
 }
 
-static int dsa_port_setup_phy_of(struct dsa_port *dp, bool enable)
+static int dsa_port_setup_phy_fw(struct dsa_port *dp, bool enable)
 {
 	struct dsa_switch *ds = dp->ds;
 	struct phy_device *phydev;
@@ -1590,16 +1588,15 @@ err_put_dev:
 	return err;
 }
 
-static int dsa_port_fixed_link_register_of(struct dsa_port *dp)
+static int dsa_port_fixed_link_register_fw(struct dsa_port *dp)
 {
-	struct device_node *dn = dp->dn;
 	struct dsa_switch *ds = dp->ds;
 	struct phy_device *phydev;
 	int port = dp->index;
-	phy_interface_t mode;
+	int mode;
 	int err;
 
-	err = of_phy_register_fixed_link(dn);
+	err = fwnode_phy_register_fixed_link(dp->fwnode);
 	if (err) {
 		dev_err(ds->dev,
 			"failed to register the fixed PHY of port %d\n",
@@ -1607,10 +1604,10 @@ static int dsa_port_fixed_link_register_of(struct dsa_port *dp)
 		return err;
 	}
 
-	phydev = of_phy_find_device(dn);
+	phydev = fwnode_phy_find_device(dp->fwnode);
 
-	err = of_get_phy_mode(dn, &mode);
-	if (err)
+	mode = fwnode_get_phy_mode(dp->fwnode);
+	if (mode < 0)
 		mode = PHY_INTERFACE_MODE_NA;
 	phydev->interface = mode;
 
@@ -1627,7 +1624,6 @@ static int dsa_port_fixed_link_register_of(struct dsa_port *dp)
 static int dsa_port_phylink_register(struct dsa_port *dp)
 {
 	struct dsa_switch *ds = dp->ds;
-	struct device_node *port_dn = dp->dn;
 	int err;
 
 	dp->pl_config.dev = ds->dev;
@@ -1637,7 +1633,7 @@ static int dsa_port_phylink_register(struct dsa_port *dp)
 	if (err)
 		return err;
 
-	err = phylink_of_phy_connect(dp->pl, port_dn, 0);
+	err = phylink_fwnode_phy_connect(dp->pl, dp->fwnode, 0);
 	if (err && err != -ENODEV) {
 		pr_err("could not attach to PHY: %d\n", err);
 		goto err_phy_connect;
@@ -1650,35 +1646,35 @@ err_phy_connect:
 	return err;
 }
 
-int dsa_port_link_register_of(struct dsa_port *dp)
+int dsa_port_link_register_fw(struct dsa_port *dp)
 {
+	struct fwnode_handle *phy_handle;
 	struct dsa_switch *ds = dp->ds;
-	struct device_node *phy_np;
 	int port = dp->index;
 
 	if (!ds->ops->adjust_link) {
-		phy_np = of_parse_phandle(dp->dn, "phy-handle", 0);
-		if (of_phy_is_fixed_link(dp->dn) || phy_np) {
+		phy_handle = fwnode_find_reference(dp->fwnode, "phy-handle", 0);
+		if (fwnode_phy_is_fixed_link(dp->fwnode) || !IS_ERR(phy_handle)) {
 			if (ds->ops->phylink_mac_link_down)
 				ds->ops->phylink_mac_link_down(ds, port,
 					MLO_AN_FIXED, PHY_INTERFACE_MODE_NA);
-			of_node_put(phy_np);
+			fwnode_handle_put(dp->fwnode);
 			return dsa_port_phylink_register(dp);
 		}
-		of_node_put(phy_np);
+		fwnode_handle_put(dp->fwnode);
 		return 0;
 	}
 
 	dev_warn(ds->dev,
 		 "Using legacy PHYLIB callbacks. Please migrate to PHYLINK!\n");
 
-	if (of_phy_is_fixed_link(dp->dn))
-		return dsa_port_fixed_link_register_of(dp);
+	if (fwnode_phy_is_fixed_link(dp->fwnode))
+		return dsa_port_fixed_link_register_fw(dp);
 	else
-		return dsa_port_setup_phy_of(dp, true);
+		return dsa_port_setup_phy_fw(dp, true);
 }
 
-void dsa_port_link_unregister_of(struct dsa_port *dp)
+void dsa_port_link_unregister_fw(struct dsa_port *dp)
 {
 	struct dsa_switch *ds = dp->ds;
 
@@ -1691,10 +1687,10 @@ void dsa_port_link_unregister_of(struct dsa_port *dp)
 		return;
 	}
 
-	if (of_phy_is_fixed_link(dp->dn))
-		of_phy_deregister_fixed_link(dp->dn);
+	if (fwnode_phy_is_fixed_link(dp->fwnode))
+		fwnode_phy_deregister_fixed_link(dp->fwnode);
 	else
-		dsa_port_setup_phy_of(dp, false);
+		dsa_port_setup_phy_fw(dp, false);
 }
 
 int dsa_port_hsr_join(struct dsa_port *dp, struct net_device *hsr)

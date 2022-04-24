@@ -1517,7 +1517,7 @@ qca8k_parse_port_config(struct qca8k_priv *priv)
 			continue;
 
 		dp = dsa_to_port(priv->ds, port);
-		port_dn = dp->dn;
+		port_dn = to_of_node(dp->fwnode);
 		cpu_port_index++;
 
 		if (!of_device_is_available(port_dn))

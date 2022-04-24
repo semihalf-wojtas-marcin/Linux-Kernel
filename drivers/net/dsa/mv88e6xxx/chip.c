@@ -3275,7 +3275,7 @@ static int mv88e6xxx_setup_upstream_port(struct mv88e6xxx_chip *chip, int port)
 
 static int mv88e6xxx_setup_port(struct mv88e6xxx_chip *chip, int port)
 {
-	struct device_node *phy_handle = NULL;
+	struct fwnode_handle *phy_handle = NULL;
 	struct dsa_switch *ds = chip->ds;
 	phy_interface_t mode;
 	struct dsa_port *dp;
@@ -3499,15 +3499,15 @@ static int mv88e6xxx_setup_port(struct mv88e6xxx_chip *chip, int port)
 
 	if (chip->info->ops->serdes_set_tx_amplitude) {
 		if (dp)
-			phy_handle = of_parse_phandle(dp->dn, "phy-handle", 0);
+			phy_handle = fwnode_find_reference(dp->fwnode, "phy-handle", 0);
 
-		if (phy_handle && !of_property_read_u32(phy_handle,
-							"tx-p2p-microvolt",
-							&tx_amp))
+		if (!IS_ERR(phy_handle) && !fwnode_property_read_u32(phy_handle,
+								     "tx-p2p-microvolt",
+								     &tx_amp))
 			err = chip->info->ops->serdes_set_tx_amplitude(chip,
 								port, tx_amp);
-		if (phy_handle) {
-			of_node_put(phy_handle);
+		if (!IS_ERR(phy_handle)) {
+			fwnode_handle_put(phy_handle);
 			if (err)
 				return err;
 		}
