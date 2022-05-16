@@ -15,9 +15,9 @@
 #include <linux/mii.h>
 #include <linux/phy.h>
 #include <linux/phy_fixed.h>
+#include <linux/property.h>
 #include <linux/err.h>
 #include <linux/slab.h>
-#include <linux/of.h>
 #include <linux/gpio/consumer.h>
 #include <linux/idr.h>
 #include <linux/netdevice.h>
@@ -186,16 +186,15 @@ static void fixed_phy_del(int phy_addr)
 	}
 }
 
-#ifdef CONFIG_OF_GPIO
-static struct gpio_desc *fixed_phy_get_gpiod(struct device_node *np)
+static struct gpio_desc *fixed_phy_get_gpiod(struct fwnode_handle *fwnode)
 {
-	struct device_node *fixed_link_node;
+	struct fwnode_handle *fixed_link_node;
 	struct gpio_desc *gpiod;
 
-	if (!np)
+	if (!fwnode)
 		return NULL;
 
-	fixed_link_node = of_get_child_by_name(np, "fixed-link");
+	fixed_link_node = fwnode_get_named_child_node(fwnode, "fixed-link");
 	if (!fixed_link_node)
 		return NULL;
 
@@ -204,7 +203,7 @@ static struct gpio_desc *fixed_phy_get_gpiod(struct device_node *np)
 	 * Linux device associated with it, we simply have obtain
 	 * the GPIO descriptor from the device tree like this.
 	 */
-	gpiod = fwnode_gpiod_get_index(of_fwnode_handle(fixed_link_node),
+	gpiod = fwnode_gpiod_get_index(fixed_link_node,
 				       "link", 0, GPIOD_IN, "mdio");
 	if (IS_ERR(gpiod) && PTR_ERR(gpiod) != -EPROBE_DEFER) {
 		if (PTR_ERR(gpiod) != -ENOENT)
@@ -212,20 +211,14 @@ static struct gpio_desc *fixed_phy_get_gpiod(struct device_node *np)
 			       fixed_link_node);
 		gpiod = NULL;
 	}
-	of_node_put(fixed_link_node);
+	fwnode_handle_put(fixed_link_node);
 
 	return gpiod;
 }
-#else
-static struct gpio_desc *fixed_phy_get_gpiod(struct device_node *np)
-{
-	return NULL;
-}
-#endif
 
 static struct phy_device *__fixed_phy_register(unsigned int irq,
 					       struct fixed_phy_status *status,
-					       struct device_node *np,
+					       struct fwnode_handle *fwnode,
 					       struct gpio_desc *gpiod)
 {
 	struct fixed_mdio_bus *fmb = &platform_fmb;
@@ -238,7 +231,7 @@ static struct phy_device *__fixed_phy_register(unsigned int irq,
 
 	/* Check if we have a GPIO associated with this fixed phy */
 	if (!gpiod) {
-		gpiod = fixed_phy_get_gpiod(np);
+		gpiod = fixed_phy_get_gpiod(fwnode);
 		if (IS_ERR(gpiod))
 			return ERR_CAST(gpiod);
 	}
@@ -269,8 +262,8 @@ static struct phy_device *__fixed_phy_register(unsigned int irq,
 		phy->asym_pause = status->asym_pause;
 	}
 
-	of_node_get(np);
-	phy->mdio.dev.of_node = np;
+	fwnode_handle_get(fwnode);
+	phy->mdio.dev.fwnode = fwnode;
 	phy->is_pseudo_fixed_link = true;
 
 	switch (status->speed) {
@@ -299,7 +292,7 @@ static struct phy_device *__fixed_phy_register(unsigned int irq,
 	ret = phy_device_register(phy);
 	if (ret) {
 		phy_device_free(phy);
-		of_node_put(np);
+		fwnode_handle_put(fwnode);
 		fixed_phy_del(phy_addr);
 		return ERR_PTR(ret);
 	}
@@ -309,9 +302,9 @@ static struct phy_device *__fixed_phy_register(unsigned int irq,
 
 struct phy_device *fixed_phy_register(unsigned int irq,
 				      struct fixed_phy_status *status,
-				      struct device_node *np)
+				      struct fwnode_handle *fwnode)
 {
-	return __fixed_phy_register(irq, status, np, NULL);
+	return __fixed_phy_register(irq, status, fwnode, NULL);
 }
 EXPORT_SYMBOL_GPL(fixed_phy_register);
 
@@ -327,7 +320,7 @@ EXPORT_SYMBOL_GPL(fixed_phy_register_with_gpiod);
 void fixed_phy_unregister(struct phy_device *phy)
 {
 	phy_device_remove(phy);
-	of_node_put(phy->mdio.dev.of_node);
+	fwnode_handle_put(phy->mdio.dev.fwnode);
 	fixed_phy_del(phy->mdio.addr);
 }
 EXPORT_SYMBOL_GPL(fixed_phy_unregister);

@@ -19,7 +19,7 @@ extern int fixed_phy_add(unsigned int irq, int phy_id,
 			 struct fixed_phy_status *status);
 extern struct phy_device *fixed_phy_register(unsigned int irq,
 					     struct fixed_phy_status *status,
-					     struct device_node *np);
+					     struct fwnode_handle *fwnode);
 
 extern struct phy_device *
 fixed_phy_register_with_gpiod(unsigned int irq,
@@ -38,7 +38,7 @@ static inline int fixed_phy_add(unsigned int irq, int phy_id,
 }
 static inline struct phy_device *fixed_phy_register(unsigned int irq,
 						struct fixed_phy_status *status,
-						struct device_node *np)
+						struct fwnode_handle *fwnode)
 {
 	return ERR_PTR(-ENODEV);
 }
