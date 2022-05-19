@@ -9,6 +9,7 @@
 
 #include <linux/device.h>
 #include <linux/err.h>
+#include <linux/etherdevice.h>
 #include <linux/list.h>
 #include <linux/module.h>
 #include <linux/netdevice.h>
@@ -374,7 +375,7 @@ struct net_device *dsa_tree_find_first_master(struct dsa_switch_tree *dst)
 	if (IS_ERR(ethernet))
 		return NULL;
 
-	master = of_find_net_device_by_node(to_of_node(ethernet));
+	master = fwnode_find_net_device_by_node(ethernet);
 	fwnode_handle_put(ethernet);
 
 	return master;
@@ -1233,7 +1234,7 @@ static int dsa_port_parse_fw(struct dsa_port *dp, struct fwnode_handle *fwnode)
 		struct net_device *master;
 		const char *user_protocol;
 
-		master = of_find_net_device_by_node(to_of_node(ethernet));
+		master = fwnode_find_net_device_by_node(ethernet);
 		fwnode_handle_put(ethernet);
 		if (!master)
 			return -EPROBE_DEFER;
