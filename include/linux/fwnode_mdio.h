@@ -16,6 +16,11 @@ int fwnode_mdiobus_phy_device_register(struct mii_bus *mdio,
 int fwnode_mdiobus_register_phy(struct mii_bus *bus,
 				struct fwnode_handle *child, u32 addr);
 
+int fwnode_phy_register_fixed_link(struct fwnode_handle *fwnode);
+
+void fwnode_phy_deregister_fixed_link(struct fwnode_handle *fwnode);
+
+bool fwnode_phy_is_fixed_link(struct fwnode_handle *fwnode);
 #else /* CONFIG_FWNODE_MDIO */
 int fwnode_mdiobus_phy_device_register(struct mii_bus *mdio,
 				       struct phy_device *phy,
@@ -29,6 +34,20 @@ static inline int fwnode_mdiobus_register_phy(struct mii_bus *bus,
 					      u32 addr)
 {
 	return -EINVAL;
+}
+
+static inline int fwnode_phy_register_fixed_link(struct fwnode_handle *fwnode)
+{
+	return -ENODEV;
+}
+
+static inline void fwnode_phy_deregister_fixed_link(struct fwnode_handle *fwnode)
+{
+}
+
+static inline bool fwnode_phy_is_fixed_link(struct fwnode_handle *fwnode)
+{
+	return false;
 }
 #endif
 
