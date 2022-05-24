@@ -10,6 +10,7 @@
 #include <linux/fwnode_mdio.h>
 #include <linux/of.h>
 #include <linux/phy.h>
+#include <linux/phy_fixed.h>
 
 MODULE_AUTHOR("Calvin Johnson <calvin.johnson@oss.nxp.com>");
 MODULE_LICENSE("GPL");
@@ -147,3 +148,102 @@ int fwnode_mdiobus_register_phy(struct mii_bus *bus,
 	return 0;
 }
 EXPORT_SYMBOL(fwnode_mdiobus_register_phy);
+
+/*
+ * fwnode_phy_is_fixed_link() and fwnode_phy_register_fixed_link() must
+ * support two bindings:
+ * - the old binding, where 'fixed-link' was a property with 5
+ *   cells encoding various information about the fixed PHY
+ * - the new binding, where 'fixed-link' is a sub-node of the
+ *   Ethernet device.
+ */
+bool fwnode_phy_is_fixed_link(struct fwnode_handle *fwnode)
+{
+	struct fwnode_handle *fixed_link_node;
+	const char *managed;
+	int len;
+
+	/* New binding */
+	fixed_link_node = fwnode_get_named_child_node(fwnode, "fixed-link");
+	if (fixed_link_node) {
+		fwnode_handle_put(fixed_link_node);
+		return true;
+	}
+
+	if (fwnode_property_read_string(fwnode, "managed", &managed) == 0 &&
+	    strcmp(managed, "auto") != 0)
+		return true;
+
+	/* Old binding */
+	len = fwnode_property_read_u32_array(fwnode, "fixed-link", NULL, 0);
+	if (len == (5 * sizeof(u32)))
+		return true;
+
+	return false;
+}
+EXPORT_SYMBOL(fwnode_phy_is_fixed_link);
+
+int fwnode_phy_register_fixed_link(struct fwnode_handle *fwnode)
+{
+	struct fixed_phy_status status = {};
+	struct fwnode_handle *fixed_link_node;
+	u32 fixed_link_prop[5];
+	const char *managed;
+
+	if (fwnode_property_read_string(fwnode, "managed", &managed) == 0 &&
+	    strcmp(managed, "in-band-status") == 0) {
+		/* status is zeroed, namely its .link member */
+		goto register_phy;
+	}
+
+	/* New binding */
+	fixed_link_node = fwnode_get_named_child_node(fwnode, "fixed-link");
+	if (fixed_link_node) {
+		status.link = 1;
+		status.duplex = fwnode_property_present(fixed_link_node,
+							"full-duplex");
+		if (fwnode_property_read_u32(fixed_link_node, "speed",
+					     &status.speed)) {
+			fwnode_handle_put(fixed_link_node);
+			return -EINVAL;
+		}
+		status.pause = fwnode_property_present(fixed_link_node, "pause");
+		status.asym_pause = fwnode_property_present(fixed_link_node,
+							    "asym-pause");
+		fwnode_handle_put(fixed_link_node);
+
+		goto register_phy;
+	}
+
+	/* Old binding */
+	if (fwnode_property_read_u32_array(fwnode, "fixed-link", fixed_link_prop,
+					   ARRAY_SIZE(fixed_link_prop)) == 0) {
+		status.link = 1;
+		status.duplex = fixed_link_prop[1];
+		status.speed  = fixed_link_prop[2];
+		status.pause  = fixed_link_prop[3];
+		status.asym_pause = fixed_link_prop[4];
+		goto register_phy;
+	}
+
+	return -ENODEV;
+
+register_phy:
+	return PTR_ERR_OR_ZERO(fixed_phy_register(PHY_POLL, &status, fwnode));
+}
+EXPORT_SYMBOL(fwnode_phy_register_fixed_link);
+
+void fwnode_phy_deregister_fixed_link(struct fwnode_handle *fwnode)
+{
+	struct phy_device *phydev;
+
+	phydev = fwnode_phy_find_device(fwnode);
+	if (!phydev)
+		return;
+
+	fixed_phy_unregister(phydev);
+
+	put_device(&phydev->mdio.dev);	/* fwnode_phy_find_device() */
+	phy_device_free(phydev);	/* fixed_phy_register() */
+}
+EXPORT_SYMBOL(fwnode_phy_deregister_fixed_link);

@@ -351,91 +351,18 @@ EXPORT_SYMBOL(of_phy_get_and_connect);
  */
 bool of_phy_is_fixed_link(struct device_node *np)
 {
-	struct device_node *dn;
-	int len, err;
-	const char *managed;
-
-	/* New binding */
-	dn = of_get_child_by_name(np, "fixed-link");
-	if (dn) {
-		of_node_put(dn);
-		return true;
-	}
-
-	err = of_property_read_string(np, "managed", &managed);
-	if (err == 0 && strcmp(managed, "auto") != 0)
-		return true;
-
-	/* Old binding */
-	if (of_get_property(np, "fixed-link", &len) &&
-	    len == (5 * sizeof(__be32)))
-		return true;
-
-	return false;
+	return fwnode_phy_is_fixed_link(of_fwnode_handle(np));
 }
 EXPORT_SYMBOL(of_phy_is_fixed_link);
 
 int of_phy_register_fixed_link(struct device_node *np)
 {
-	struct fixed_phy_status status = {};
-	struct device_node *fixed_link_node;
-	u32 fixed_link_prop[5];
-	const char *managed;
-
-	if (of_property_read_string(np, "managed", &managed) == 0 &&
-	    strcmp(managed, "in-band-status") == 0) {
-		/* status is zeroed, namely its .link member */
-		goto register_phy;
-	}
-
-	/* New binding */
-	fixed_link_node = of_get_child_by_name(np, "fixed-link");
-	if (fixed_link_node) {
-		status.link = 1;
-		status.duplex = of_property_read_bool(fixed_link_node,
-						      "full-duplex");
-		if (of_property_read_u32(fixed_link_node, "speed",
-					 &status.speed)) {
-			of_node_put(fixed_link_node);
-			return -EINVAL;
-		}
-		status.pause = of_property_read_bool(fixed_link_node, "pause");
-		status.asym_pause = of_property_read_bool(fixed_link_node,
-							  "asym-pause");
-		of_node_put(fixed_link_node);
-
-		goto register_phy;
-	}
-
-	/* Old binding */
-	if (of_property_read_u32_array(np, "fixed-link", fixed_link_prop,
-				       ARRAY_SIZE(fixed_link_prop)) == 0) {
-		status.link = 1;
-		status.duplex = fixed_link_prop[1];
-		status.speed  = fixed_link_prop[2];
-		status.pause  = fixed_link_prop[3];
-		status.asym_pause = fixed_link_prop[4];
-		goto register_phy;
-	}
-
-	return -ENODEV;
-
-register_phy:
-	return PTR_ERR_OR_ZERO(fixed_phy_register(PHY_POLL, &status, of_fwnode_handle(np)));
+	return fwnode_phy_register_fixed_link(of_fwnode_handle(np));
 }
 EXPORT_SYMBOL(of_phy_register_fixed_link);
 
 void of_phy_deregister_fixed_link(struct device_node *np)
 {
-	struct phy_device *phydev;
-
-	phydev = of_phy_find_device(np);
-	if (!phydev)
-		return;
-
-	fixed_phy_unregister(phydev);
-
-	put_device(&phydev->mdio.dev);	/* of_phy_find_device() */
-	phy_device_free(phydev);	/* fixed_phy_register() */
+	fwnode_phy_deregister_fixed_link(of_fwnode_handle(np));
 }
 EXPORT_SYMBOL(of_phy_deregister_fixed_link);
