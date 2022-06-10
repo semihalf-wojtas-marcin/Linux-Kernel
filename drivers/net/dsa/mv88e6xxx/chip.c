@@ -10,6 +10,8 @@
  *	Vivien Didelot <vivien.didelot@savoirfairelinux.com>
  */
 
+#include <linux/acpi.h>
+#include <linux/acpi_mdio.h>
 #include <linux/bitfield.h>
 #include <linux/delay.h>
 #include <linux/dsa/mv88e6xxx.h>
@@ -3913,7 +3915,10 @@ static int mv88e6xxx_mdio_register(struct mv88e6xxx_chip *chip,
 			goto out;
 	}
 
-	err = of_mdiobus_register(bus, np);
+	if (is_acpi_node(fwnode))
+		err = acpi_mdiobus_register(bus, fwnode);
+	else
+		err = of_mdiobus_register(bus, np);
 	if (err) {
 		dev_err(chip->dev, "Cannot register MDIO bus (%d)\n", err);
 		mv88e6xxx_g2_irq_mdio_free(chip, bus);
@@ -3952,14 +3957,19 @@ static void mv88e6xxx_mdios_unregister(struct mv88e6xxx_chip *chip)
 static int mv88e6xxx_mdios_register(struct mv88e6xxx_chip *chip,
 				    struct fwnode_handle *fwnode)
 {
+	char mdio_node_name[] = "mdio";
 	struct fwnode_handle *child;
 	int err;
+
+	/* Update subnode name if operating in the ACPI world. */
+	if (is_acpi_node(fwnode))
+		strncpy(mdio_node_name, "MDIO", ACPI_NAMESEG_SIZE);
 
 	/* Always register one mdio bus for the internal/default mdio
 	 * bus. This maybe represented in the device tree, but is
 	 * optional.
 	 */
-	child = fwnode_get_named_child_node(fwnode, "mdio");
+	child = fwnode_get_named_child_node(fwnode, mdio_node_name);
 	err = mv88e6xxx_mdio_register(chip, child, false);
 	fwnode_handle_put(child);
 	if (err)
@@ -7177,6 +7187,16 @@ static const struct of_device_id mv88e6xxx_of_match[] = {
 
 MODULE_DEVICE_TABLE(of, mv88e6xxx_of_match);
 
+#ifdef CONFIG_ACPI
+static const struct acpi_device_id sdhci_mv88e6xxx_acpi_ids[] = {
+	{ .id = "MRVL0120", (kernel_ulong_t)&mv88e6xxx_table[MV88E6085]},
+	{ .id = "MRVL0121", (kernel_ulong_t)&mv88e6xxx_table[MV88E6190]},
+	{ .id = "MRVL0122", (kernel_ulong_t)&mv88e6xxx_table[MV88E6250]},
+	{}
+};
+MODULE_DEVICE_TABLE(acpi, sdhci_mv88e6xxx_acpi_ids);
+#endif
+
 static struct mdio_driver mv88e6xxx_driver = {
 	.probe	= mv88e6xxx_probe,
 	.remove = mv88e6xxx_remove,
@@ -7184,6 +7204,7 @@ static struct mdio_driver mv88e6xxx_driver = {
 	.mdiodrv.driver = {
 		.name = "mv88e6085",
 		.of_match_table = mv88e6xxx_of_match,
+		.acpi_match_table = ACPI_PTR(sdhci_mv88e6xxx_acpi_ids),
 		.pm = &mv88e6xxx_pm_ops,
 	},
 };
