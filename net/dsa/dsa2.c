@@ -6,6 +6,8 @@
  * Copyright (c) 2016 Andrew Lunn <andrew@lunn.ch>
  */
 
+#include <linux/acpi.h>
+#include <linux/acpi_mdio.h>
 #include <linux/device.h>
 #include <linux/etherdevice.h>
 #include <linux/err.h>
@@ -854,6 +856,7 @@ disconnect:
 static int dsa_switch_setup(struct dsa_switch *ds)
 {
 	struct dsa_devlink_priv *dl_priv;
+	char mdio_node_name[] = "mdio";
 	struct fwnode_handle *fwnode;
 	struct dsa_port *dp;
 	int err;
@@ -910,9 +913,16 @@ static int dsa_switch_setup(struct dsa_switch *ds)
 
 		dsa_slave_mii_bus_init(ds);
 
-		fwnode = fwnode_get_named_child_node(ds->dev->fwnode, "mdio");
+		/* Update subnode name if operating in the ACPI world. */
+		if (is_acpi_node(fwnode))
+			strncpy(mdio_node_name, "MDIO", ACPI_NAMESEG_SIZE);
 
-		err = of_mdiobus_register(ds->slave_mii_bus, to_of_node(fwnode));
+		fwnode = fwnode_get_named_child_node(ds->dev->fwnode, mdio_node_name);
+
+		if (is_acpi_node(fwnode))
+			err = acpi_mdiobus_register(ds->slave_mii_bus, fwnode);
+		else
+			err = of_mdiobus_register(ds->slave_mii_bus, to_of_node(fwnode));
 		fwnode_handle_put(fwnode);
 		if (err < 0)
 			goto free_slave_mii_bus;
@@ -1374,6 +1384,15 @@ static int dsa_port_parse_user(struct dsa_port *dp, const char *name)
 
 static int dsa_port_parse_dsa(struct dsa_port *dp)
 {
+	/* Cascade switch connection is not supported in ACPI world. */
+	if (is_acpi_node(dp->fwnode)) {
+		dev_warn(dp->ds->dev,
+			 "DSA type is not supported with ACPI, disable port #%d\n",
+			 dp->index);
+		dp->type = DSA_PORT_TYPE_UNUSED;
+		return 0;
+	}
+
 	dp->type = DSA_PORT_TYPE_DSA;
 
 	return 0;
@@ -1524,11 +1543,16 @@ static int dsa_switch_parse_ports_of(struct dsa_switch *ds,
 				     struct fwnode_handle *fwnode)
 {
 	struct fwnode_handle *ports, *port;
+	char ports_node_name[] = "ports";
 	struct dsa_port *dp;
 	int err = 0;
 	u32 reg;
 
-	ports = fwnode_get_named_child_node(fwnode, "ports");
+	/* Update subnode name if operating in the ACPI world. */
+	if (is_acpi_node(fwnode))
+		strncpy(ports_node_name, "PRTS", ACPI_NAMESEG_SIZE);
+
+	ports = fwnode_get_named_child_node(fwnode, ports_node_name);
 	if (!ports) {
 		/* The second possibility is "ethernet-ports" */
 		ports = fwnode_get_named_child_node(fwnode, "ethernet-ports");
@@ -1539,7 +1563,10 @@ static int dsa_switch_parse_ports_of(struct dsa_switch *ds,
 	}
 
 	fwnode_for_each_available_child_node(ports, port) {
-		err = fwnode_property_read_u32(port, "reg", &reg);
+		if (is_acpi_node(port))
+			err = acpi_get_local_address(ACPI_HANDLE_FWNODE(port), &reg);
+		else
+			err = fwnode_property_read_u32(port, "reg", &reg);
 		if (err) {
 			fwnode_handle_put(port);
 			goto out_put_node;
