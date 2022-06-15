@@ -1716,6 +1716,18 @@ static bool acpi_is_indirect_io_slave(struct acpi_device *device)
 	return parent && !acpi_match_device_ids(parent, indirect_io_hosts);
 }
 
+static bool acpi_is_mdio_child(struct acpi_device *device)
+{
+	struct acpi_device *parent = device->parent;
+	static const struct acpi_device_id mdio_controllers[] = {
+		{"MRVL0100", 0},
+		{"MRVL0101", 0},
+		{}
+	};
+
+	return parent && !acpi_match_device_ids(parent, mdio_controllers);
+}
+
 static bool acpi_device_enumeration_by_parent(struct acpi_device *device)
 {
 	struct list_head resource_list;
@@ -1754,6 +1766,9 @@ static bool acpi_device_enumeration_by_parent(struct acpi_device *device)
 	};
 
 	if (acpi_is_indirect_io_slave(device))
+		return true;
+
+	if (acpi_is_mdio_child(device))
 		return true;
 
 	/* Macs use device properties in lieu of _CRS resources */
