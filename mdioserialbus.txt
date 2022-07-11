@@ -1,0 +1,66 @@
+From: Marcin Wojtas <mw@semihalf.com>
+Date: Tue, 28 Jun 2022 22:25:23 +0200
+Subject: [RFC] ACPI Code First ECR: MDIOSerialBus resource descriptor macro
+
+Management Data Input/Output (MDIO), also known as Serial Management
+Interface (SMI) is a serial bus defined for the Ethernet family of
+IEEE 802.3 standards for the Media Independent Interface (MII).
+The MDIO bus is mostly used for controlling Ethernet PHYs, but
+it can also communicate with other type of devices, such as switches.
+
+
+
+On some systems there are devices that should better be left in their
+current power state before attempting to bind drivers to them in order
+to avoid some undesirable side effects of turning the power on (e.g.
+blinking a privacy LED of a camera that may confuse the user to
+believe that the camera sensor is in use while in fact the camera is
+only being probed by a driver).
+
+To support this use case, define a new device PM object called _DSC
+(Deepest State for Configuration) returning the deepest D-state the
+device can be in before evaluating its _CRS, _PRS and _SRS configuration
+objects.
+
+# Title: Introduce MDIOSerialBus resource descriptor macro 
+
+# Status: Draft
+
+# Document: ACPI Specification 6.4
+
+# License
+SPDX-License Identifier: CC-BY-4.0
+
+# Submitter:
+* Sponsor: Marcin Wojtas, Semihalf
+* Creators/Contributors:
+    * Marcin Wojtas, Semihalf
+    * Samer El-Haj-Mahmoud, ARM
+
+# Summary of the Change
+Introduce a new device PM object called _DSC (Deepest State for Configuration)
+returning the deepest D-state the device can be in before evaluating its _CRS,
+_PRS and _SRS configuration objects.
+
+# Benefits of the Change
+It will allow OSPMs to avoid putting devices into D0 in order to check and set
+their resources if _DSC is present and its return value is greater than 0.  In
+particular, if _DSC returns 4 (assuming that _PR3 is present for the given
+device), the device can remain in D3cold during driver probe and the driver
+should be able to gather all of the information needed by it to operate the
+device without changing its power state.
+
+# Impact of the Change
+Enable certain device power management optimizations.
+
+# References
+Support running driver's probe for a device powered off
+<https://lore.kernel.org/linux-acpi/20210210230800.30291-1-sakari.ailus@linux.intel.com/T/#m24e9f51119cbe6eb39f31c097ea3941d00a0baeb>
+
+# Detailed Description of the Change
+
+* Add a new row to Table 19.4. ASL Operators Summary:
+
+> MDIOSerialBus    MDIO SerialBus Connection Resource Descriptor macro.
+
+* Add new Section 7.3.27:
