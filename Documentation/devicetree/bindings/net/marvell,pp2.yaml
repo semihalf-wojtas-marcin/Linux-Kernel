@@ -4,6 +4,7 @@
 $id: http://devicetree.org/schemas/net/marvell,pp2.yaml#
 $schema: http://devicetree.org/meta-schemas/core.yaml#
 
+
 title: Marvell CN913X / Marvell Armada 375, 7K, 8K Ethernet Controller
 
 maintainers:
@@ -24,6 +25,12 @@ properties:
   reg:
     minItems: 3
     maxItems: 4
+
+  "#address-cells":
+    const: 1
+
+  "#size-cells":
+    const: 0
 
   clocks:
     minItems: 2
@@ -50,7 +57,7 @@ properties:
     description: a phandle to the system controller.
 
 patternProperties:
-  '^eth[0-9a-f]+(@.*)?$':
+  '^(ethernet-)?port@[0-9]+$':
     type: object
     description: subnode for each ethernet port.
 
@@ -82,9 +89,15 @@ patternProperties:
           for backward compatibility but shouldn't be used for new
           additions.
 
-      port-id:
+      reg:
         $ref: /schemas/types.yaml#/definitions/uint32
         description: ID of the port from the MAC point of view.
+
+      port-id:
+        $ref: /schemas/types.yaml#/definitions/uint32
+        description: >
+          ID of the port from the MAC point of view.
+          Legacy binding for backward compatibility.
 
       phy:
         $ref: /schemas/types.yaml#/definitions/phandle
@@ -110,6 +123,7 @@ patternProperties:
       - interrupts
       - port-id
       - phy-mode
+      - reg
 
 required:
   - compatible
@@ -128,7 +142,7 @@ allOf:
         reg:
           items:
             - description: Packet Processor registers
-            - description: networking interfaces registers
+            - description: Networking interfaces registers
             - description: CM3 address space used for TX Flow Control
 
         clocks:
@@ -138,17 +152,20 @@ allOf:
           minItems: 5
 
       patternProperties:
-        'eth[0-9a-f]+(@.*)?$':
+        '^(ethernet-)?port@[0-9]+$':
           required:
             - gop-port-id
+
+      required:
+        - marvell,system-controller
     else:
       properties:
         reg:
           items:
             - description: Packet Processor registers
             - description: LMS registers
-            - description: register area per eth0
-            - description: register area per eth1
+            - description: Register area per eth0
+            - description: Register area per eth1
 
         clocks:
           maxItems: 2
@@ -157,7 +174,7 @@ allOf:
           maxItems: 2
 
       patternProperties:
-        '^eth[0-9a-f]+(@.*)?$':
+        '^(ethernet-)?port@[0-9]+$':
           properties:
             gop-port-id: false
 
@@ -170,6 +187,8 @@ examples:
     #include <dt-bindings/interrupt-controller/arm-gic.h>
 
     ethernet@f0000 {
+      #address-cells = <1>;
+      #size-cells = <0>;
       compatible = "marvell,armada-375-pp2";
       reg = <0xf0000 0xa000>,
             <0xc0000 0x3060>,
@@ -178,16 +197,18 @@ examples:
       clocks = <&gateclk 3>, <&gateclk 19>;
       clock-names = "pp_clk", "gop_clk";
 
-      eth0: eth0 {
+      ethernet-port@0 {
         interrupts = <GIC_SPI 37 IRQ_TYPE_LEVEL_HIGH>;
-        port-id = <0>;
+        reg = <0>;
+        port-id = <0>; /* For backward compatibility. */
         phy = <&phy0>;
         phy-mode = "gmii";
       };
 
-      eth1: eth1 {
+      ethernet-port@1 {
         interrupts = <GIC_SPI 41 IRQ_TYPE_LEVEL_HIGH>;
-        port-id = <1>;
+        reg = <1>;
+        port-id = <1>; /* For backward compatibility. */
         phy = <&phy3>;
         phy-mode = "gmii";
       };
@@ -198,14 +219,17 @@ examples:
     #include <dt-bindings/interrupt-controller/mvebu-icu.h>
     #include <dt-bindings/interrupt-controller/arm-gic.h>
 
-    cp0_ethernet: ethernet@0 {
+    ethernet@0 {
+      #address-cells = <1>;
+      #size-cells = <0>;
       compatible = "marvell,armada-7k-pp22";
       reg = <0x0 0x100000>, <0x129000 0xb000>, <0x220000 0x800>;
-      clocks = <&cp0_syscon0 1 3>, <&cp0_syscon0 1 9>,
-               <&cp0_syscon0 1 5>, <&cp0_syscon0 1 6>, <&cp0_syscon0 1 18>;
+      clocks = <&cp0_clk 1 3>, <&cp0_clk 1 9>,
+               <&cp0_clk 1 5>, <&cp0_clk 1 6>, <&cp0_clk 1 18>;
       clock-names = "pp_clk", "gop_clk", "mg_clk", "mg_core_clk", "axi_clk";
+      marvell,system-controller = <&cp0_syscon0>;
 
-      eth00: eth0 {
+      ethernet-port@0 {
         interrupts = <ICU_GRP_NSR 39 IRQ_TYPE_LEVEL_HIGH>,
                      <ICU_GRP_NSR 43 IRQ_TYPE_LEVEL_HIGH>,
                      <ICU_GRP_NSR 47 IRQ_TYPE_LEVEL_HIGH>,
@@ -219,11 +243,12 @@ examples:
         interrupt-names = "hif0", "hif1", "hif2", "hif3", "hif4",
                           "hif5", "hif6", "hif7", "hif8", "link";
         phy-mode = "10gbase-r";
-        port-id = <0>;
+        reg = <0>;
+        port-id = <0>; /* For backward compatibility. */
         gop-port-id = <0>;
       };
 
-      eth01: eth1 {
+      ethernet-port@1 {
         interrupts = <ICU_GRP_NSR 40 IRQ_TYPE_LEVEL_HIGH>,
                      <ICU_GRP_NSR 44 IRQ_TYPE_LEVEL_HIGH>,
                      <ICU_GRP_NSR 48 IRQ_TYPE_LEVEL_HIGH>,
@@ -237,11 +262,12 @@ examples:
         interrupt-names = "hif0", "hif1", "hif2", "hif3", "hif4",
                           "hif5", "hif6", "hif7", "hif8", "link";
         phy-mode = "rgmii-id";
-        port-id = <1>;
+        reg = <1>;
+        port-id = <1>; /* For backward compatibility. */
         gop-port-id = <2>;
       };
 
-      eth02: eth2 {
+      ethernet-port@2 {
         interrupts = <ICU_GRP_NSR 41 IRQ_TYPE_LEVEL_HIGH>,
                      <ICU_GRP_NSR 45 IRQ_TYPE_LEVEL_HIGH>,
                      <ICU_GRP_NSR 49 IRQ_TYPE_LEVEL_HIGH>,
@@ -255,7 +281,8 @@ examples:
         interrupt-names = "hif0", "hif1", "hif2", "hif3", "hif4",
                           "hif5", "hif6", "hif7", "hif8", "link";
         phy-mode = "gmii";
-        port-id = <2>;
+        reg = <2>;
+        port-id = <2>; /* For backward compatibility. */
         gop-port-id = <3>;
       };
     };
