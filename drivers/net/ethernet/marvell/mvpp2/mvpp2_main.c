@@ -2784,8 +2784,10 @@ static void mvpp2_tx_time_coal_set(struct mvpp2_port *port)
 /* Free Tx queue skbuffs */
 static void mvpp2_txq_bufs_free(struct mvpp2_port *port,
 				struct mvpp2_tx_queue *txq,
-				struct mvpp2_txq_pcpu *txq_pcpu, int num)
+				struct mvpp2_txq_pcpu *txq_pcpu, int num,
+				struct netdev_queue *nq)
 {
+	unsigned int bytes_compl = 0, pkts_compl = 0;
 	struct xdp_frame_bulk bq;
 	int i;
 
@@ -2801,9 +2803,11 @@ static void mvpp2_txq_bufs_free(struct mvpp2_port *port,
 		    tx_buf->type != MVPP2_TYPE_XDP_TX)
 			dma_unmap_single(port->dev->dev.parent, tx_buf->dma,
 					 tx_buf->size, DMA_TO_DEVICE);
-		if (tx_buf->type == MVPP2_TYPE_SKB && tx_buf->skb)
+		if (tx_buf->type == MVPP2_TYPE_SKB && tx_buf->skb) {
+			bytes_compl += tx_buf->skb->len;
+			pkts_compl++;
 			dev_kfree_skb_any(tx_buf->skb);
-		else if (tx_buf->type == MVPP2_TYPE_XDP_TX ||
+		} else if (tx_buf->type == MVPP2_TYPE_XDP_TX ||
 			 tx_buf->type == MVPP2_TYPE_XDP_NDO)
 			xdp_return_frame_bulk(tx_buf->xdpf, &bq);
 
@@ -2812,6 +2816,8 @@ static void mvpp2_txq_bufs_free(struct mvpp2_port *port,
 	xdp_flush_frame_bulk(&bq);
 
 	rcu_read_unlock();
+
+	netdev_tx_completed_queue(nq, pkts_compl, bytes_compl);
 }
 
 static inline struct mvpp2_rx_queue *mvpp2_get_rx_queue(struct mvpp2_port *port,
@@ -2843,7 +2849,7 @@ static void mvpp2_txq_done(struct mvpp2_port *port, struct mvpp2_tx_queue *txq,
 	tx_done = mvpp2_txq_sent_desc_proc(port, txq);
 	if (!tx_done)
 		return;
-	mvpp2_txq_bufs_free(port, txq, txq_pcpu, tx_done);
+	mvpp2_txq_bufs_free(port, txq, txq_pcpu, tx_done, nq);
 
 	txq_pcpu->count -= tx_done;
 
@@ -3158,6 +3164,7 @@ static int mvpp2_txq_init(struct mvpp2_port *port,
 static void mvpp2_txq_deinit(struct mvpp2_port *port,
 			     struct mvpp2_tx_queue *txq)
 {
+	struct netdev_queue *nq = netdev_get_tx_queue(port->dev, txq->log_id);
 	struct mvpp2_txq_pcpu *txq_pcpu;
 	unsigned int thread;
 
@@ -3179,6 +3186,8 @@ static void mvpp2_txq_deinit(struct mvpp2_port *port,
 				  txq->size * MVPP2_DESC_ALIGNED_SIZE,
 				  txq->descs, txq->descs_dma);
 
+	netdev_tx_reset_queue(nq);
+
 	txq->descs             = NULL;
 	txq->last_desc         = 0;
 	txq->next_desc_to_proc = 0;
@@ -3198,6 +3207,7 @@ static void mvpp2_txq_deinit(struct mvpp2_port *port,
 /* Cleanup Tx ports */
 static void mvpp2_txq_clean(struct mvpp2_port *port, struct mvpp2_tx_queue *txq)
 {
+	struct netdev_queue *nq = netdev_get_tx_queue(port->dev, txq->log_id);
 	struct mvpp2_txq_pcpu *txq_pcpu;
 	int delay, pending;
 	unsigned int thread = mvpp2_cpu_to_thread(port->priv, get_cpu());
@@ -3235,7 +3245,7 @@ static void mvpp2_txq_clean(struct mvpp2_port *port, struct mvpp2_tx_queue *txq)
 		txq_pcpu = per_cpu_ptr(txq->pcpu, thread);
 
 		/* Release all packets */
-		mvpp2_txq_bufs_free(port, txq, txq_pcpu, txq_pcpu->count);
+		mvpp2_txq_bufs_free(port, txq, txq_pcpu, txq_pcpu->count, nq);
 
 		/* Reset queue */
 		txq_pcpu->count = 0;
@@ -4402,6 +4412,8 @@ out:
 	if (frags > 0) {
 		struct mvpp2_pcpu_stats *stats = per_cpu_ptr(port->stats, thread);
 		struct netdev_queue *nq = netdev_get_tx_queue(dev, txq_id);
+
+		netdev_tx_sent_queue(nq, skb->len);
 
 		txq_pcpu->reserved_num -= frags;
 		txq_pcpu->count += frags;
